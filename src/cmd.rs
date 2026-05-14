@@ -181,6 +181,20 @@ pub fn status(store: &Store) {
     }
 }
 
+pub fn note(store: &mut Store, text: String) -> anyhow::Result<()> {
+    let session = store
+        .active_session_mut()
+        .ok_or_else(|| anyhow!("No active session — clock in first."))?;
+
+    session.note = Some(match session.note.take() {
+        Some(existing) => format!("{}; {}", existing, text),
+        None => text,
+    });
+
+    println!("  Note: {}", session.note.as_deref().unwrap().dimmed());
+    Ok(())
+}
+
 fn week_start() -> chrono::DateTime<Local> {
     let today = Local::now().date_naive();
     let days_since_monday = today.weekday().num_days_from_monday();

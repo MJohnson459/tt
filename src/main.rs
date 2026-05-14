@@ -26,6 +26,11 @@ enum Command {
     },
     /// Show current session status
     Status,
+    /// Append a note to the active session
+    Note {
+        #[arg(trailing_var_arg = true, num_args = 1..)]
+        text: Vec<String>,
+    },
     /// List sessions
     Log {
         #[arg(short, long, help = "Filter by client")]
@@ -90,6 +95,11 @@ fn run() -> anyhow::Result<()> {
         Command::Status => {
             let store = data::Store::load()?;
             cmd::status(&store);
+        }
+        Command::Note { text } => {
+            let mut store = data::Store::load()?;
+            cmd::note(&mut store, text.join(" "))?;
+            store.save()?;
         }
         Command::Log {
             client,
