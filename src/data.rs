@@ -5,6 +5,16 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientInfo {
+    pub rate: f64,
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: u64,
     pub client: String,
@@ -12,6 +22,8 @@ pub struct Session {
     pub end: Option<DateTime<Local>>,
     pub note: Option<String>,
     pub rate: f64,
+    #[serde(default = "default_currency")]
+    pub currency: String,
 }
 
 impl Session {
@@ -32,7 +44,7 @@ impl Session {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Store {
     pub sessions: Vec<Session>,
-    pub clients: HashMap<String, f64>,
+    pub clients: HashMap<String, ClientInfo>,
     pub default_client: Option<String>,
     pub next_id: u64,
 }

@@ -17,8 +17,31 @@ fn fmt_hours(h: f64) -> String {
     }
 }
 
-fn fmt_money(amount: f64) -> String {
-    format!("${:.2}", amount)
+fn currency_symbol(code: &str) -> &str {
+    match code {
+        "USD" => "$",
+        "CAD" => "C$",
+        "AUD" => "A$",
+        "NZD" => "NZ$",
+        "HKD" => "HK$",
+        "SGD" => "S$",
+        "MXN" => "MX$",
+        "EUR" => "€",
+        "GBP" => "£",
+        "JPY" => "¥",
+        "CNY" => "¥",
+        "INR" => "₹",
+        _ => "",
+    }
+}
+
+fn fmt_money(amount: f64, currency: &str) -> String {
+    let sym = currency_symbol(currency);
+    if sym.is_empty() {
+        format!("{} {:.2}", currency, amount)
+    } else {
+        format!("{}{:.2}", sym, amount)
+    }
 }
 
 pub fn clock_in(
@@ -42,13 +65,13 @@ pub fn clock_in(
             )
         })?;
 
-    let rate = *store.clients.get(&client_name).ok_or_else(|| {
+    let info = store.clients.get(&client_name).ok_or_else(|| {
         anyhow!(
             "Unknown client '{}'.\n  Add it with: tt client add {} --rate <rate>",
             client_name,
             client_name
         )
-    })?;
+    })?.clone();
 
     let id = store.new_id();
     let start = Local::now();
@@ -58,14 +81,15 @@ pub fn clock_in(
         start,
         end: None,
         note: note.clone(),
-        rate,
+        rate: info.rate,
+        currency: info.currency.clone(),
     };
 
     println!(
-        "{} Clocked in to {}  (${}/hr)  {}",
+        "{} Clocked in to {}  ({}/hr)  {}",
         "●".green().bold(),
         client_name.bold(),
-        rate,
+        fmt_money(info.rate, &info.currency),
         start.format("%H:%M on %a %b %-d")
     );
     if let Some(n) = &note {
@@ -90,13 +114,14 @@ pub fn clock_out(store: &mut Store, note: Option<String>) -> anyhow::Result<()> 
     let hours = session.duration_hours();
     let earnings = session.earnings();
     let client = session.client.clone();
+    let currency = session.currency.clone();
 
     println!(
         "{} Clocked out of {}  {}  {}",
         "○".dimmed(),
         client.bold(),
         fmt_hours(hours).bold(),
-        fmt_money(earnings).green().bold()
+        fmt_money(earnings, &currency).green().bold()
     );
     Ok(())
 }
@@ -111,7 +136,7 @@ pub fn status(store: &Store) {
             println!(
                 "  Running: {}  =  {}",
                 fmt_hours(hours),
-                fmt_money(s.earnings()).green()
+                fmt_money(s.earnings(), &s.currency).green()
             );
             if let Some(note) = &s.note {
                 println!("  Note:    {}", note.dimmed());
@@ -217,9 +242,9 @@ pub fn log(store: &Store, client: Option<String>, week: bool, month: bool) {
         };
 
         let earnings_str = if s.is_active() {
-            format!("~{}", fmt_money(s.earnings()))
+            format!("~{}", fmt_money(s.earnings(), &s.currency))
         } else {
-            fmt_money(s.earnings())
+            fmt_money(s.earnings(), &s.currency)
         };
 
         let active_marker = if s.is_active() { " ●" } else { "" };
@@ -260,9 +285,12 @@ pub fn summary(store: &Store, week: bool, month: bool) {
         return;
     }
 
-    let mut by_client: HashMap<String, (f64, f64)> = HashMap::new();
+    // client -> (hours, earnings, currency)
+    let mut by_client: HashMap<String, (f64, f64, String)> = HashMap::new();
     for s in &sessions {
-        let e = by_client.entry(s.client.clone()).or_default();
+        let e = by_client
+            .entry(s.client.clone())
+            .or_insert((0.0, 0.0, s.currency.clone()));
         e.0 += s.duration_hours();
         e.1 += s.earnings();
     }
@@ -273,11 +301,11 @@ pub fn summary(store: &Store, week: bool, month: bool) {
         .max()
         .unwrap_or(6)
         .max(6);
-    let rule = "─".repeat(42 + cw.saturating_sub(6));
+    let rule = "─".repeat(44 + cw.saturating_sub(6));
 
     println!("{}", rule.dimmed());
     println!(
-        "{:<cw$}  {:>8}  {:>10}  {}",
+        "{:<cw$}  {:>8}  {:>12}  {}",
         "Client".dimmed(),
         "Hours".dimmed(),
         "Earnings".dimmed(),
@@ -288,51 +316,79 @@ pub fn summary(store: &Store, week: bool, month: bool) {
     let mut clients: Vec<_> = by_client.iter().collect();
     clients.sort_by_key(|(k, _)| k.as_str());
 
-    let mut total_hours = 0.0f64;
-    let mut total_earnings = 0.0f64;
+    // currency -> (hours, earnings)
+    let mut by_currency: HashMap<String, (f64, f64)> = HashMap::new();
 
-    for (client, (hours, earnings)) in &clients {
-        let rate = store.clients.get(client.as_str()).copied().unwrap_or(0.0);
+    for (client, (hours, earnings, currency)) in &clients {
+        let info = store.clients.get(client.as_str());
+        let rate_str = match info {
+            Some(i) => format!("@ {}/hr", fmt_money(i.rate, &i.currency)),
+            None => String::new(),
+        };
         println!(
-            "{:<cw$}  {:>7.2}h  {:>10}  @ ${}/hr",
+            "{:<cw$}  {:>7.2}h  {:>12}  {}",
             client,
             hours,
-            fmt_money(*earnings).green(),
-            rate,
+            fmt_money(*earnings, currency).green(),
+            rate_str,
         );
-        total_hours += hours;
-        total_earnings += earnings;
+        let e = by_currency.entry(currency.clone()).or_default();
+        e.0 += hours;
+        e.1 += earnings;
     }
 
-    if clients.len() > 1 {
-        println!("{}", rule.dimmed());
+    println!("{}", rule.dimmed());
+
+    let mut currencies: Vec<_> = by_currency.iter().collect();
+    currencies.sort_by_key(|(k, _)| k.as_str());
+
+    for (currency, (hours, earnings)) in &currencies {
+        let label = if currencies.len() == 1 {
+            "Total".to_string()
+        } else {
+            format!("Total {}", currency)
+        };
         println!(
-            "{:<cw$}  {:>7.2}h  {:>10}",
-            "Total".bold(),
-            total_hours,
-            fmt_money(total_earnings).green().bold(),
+            "{:<cw$}  {:>7.2}h  {:>12}",
+            label.bold(),
+            hours,
+            fmt_money(*earnings, currency).green().bold(),
         );
     }
 }
 
-pub fn client_add(store: &mut Store, name: String, rate: f64) -> anyhow::Result<()> {
+pub fn client_add(
+    store: &mut Store,
+    name: String,
+    rate: f64,
+    currency: String,
+) -> anyhow::Result<()> {
     if rate <= 0.0 {
         bail!("Rate must be greater than 0");
     }
+    let currency = currency.to_uppercase();
     let existed = store.clients.contains_key(&name);
-    store.clients.insert(name.clone(), rate);
+    let rate_str = fmt_money(rate, &currency);
+    store
+        .clients
+        .insert(name.clone(), crate::data::ClientInfo { rate, currency });
     if !existed && store.default_client.is_none() {
         store.default_client = Some(name.clone());
         println!(
-            "{} Added '{}' at ${}/hr  (set as default)",
+            "{} Added '{}' at {}/hr  (set as default)",
             "✓".green(),
             name,
-            rate
+            rate_str
         );
     } else if existed {
-        println!("{} Updated '{}' rate to ${}/hr", "✓".green(), name, rate);
+        println!(
+            "{} Updated '{}' rate to {}/hr",
+            "✓".green(),
+            name,
+            rate_str
+        );
     } else {
-        println!("{} Added '{}' at ${}/hr", "✓".green(), name, rate);
+        println!("{} Added '{}' at {}/hr", "✓".green(), name, rate_str);
     }
     Ok(())
 }
@@ -346,17 +402,28 @@ pub fn client_list(store: &Store) {
     let mut clients: Vec<_> = store.clients.iter().collect();
     clients.sort_by_key(|(k, _)| k.as_str());
 
-    println!("{:<20}  {:>10}", "Client".dimmed(), "Rate".dimmed());
-    println!("{}", "─".repeat(34).dimmed());
+    println!(
+        "{:<20}  {:>12}  {}",
+        "Client".dimmed(),
+        "Rate".dimmed(),
+        "Currency".dimmed()
+    );
+    println!("{}", "─".repeat(42).dimmed());
 
-    for (name, rate) in clients {
+    for (name, info) in clients {
         let is_default = store.default_client.as_deref() == Some(name.as_str());
         let marker = if is_default {
             " (default)".dimmed().to_string()
         } else {
             String::new()
         };
-        println!("{:<20}  {:>8}$/hr{}", name, rate, marker);
+        println!(
+            "{:<20}  {:>10}/hr  {}{}",
+            name,
+            fmt_money(info.rate, &info.currency),
+            info.currency,
+            marker
+        );
     }
 }
 
@@ -364,7 +431,7 @@ pub fn client_remove(store: &mut Store, name: String) -> anyhow::Result<()> {
     if !store.clients.contains_key(&name) {
         bail!("Client '{}' not found", name);
     }
-    if store.active_session().map(|s| &s.client) == Some(&name) {
+    if store.active_session().map(|s| s.client.as_str()) == Some(name.as_str()) {
         bail!(
             "Cannot remove '{}' while clocked in — clock out first",
             name
