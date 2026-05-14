@@ -26,6 +26,17 @@ enum Command {
     },
     /// Show current session status
     Status,
+    /// Manually add a past session
+    Add {
+        /// Client name (uses default if omitted)
+        client: Option<String>,
+        #[arg(short, long, help = "Start time: HH:MM (today) or \"YYYY-MM-DD HH:MM\"")]
+        start: String,
+        #[arg(short, long, help = "End time: HH:MM (today) or \"YYYY-MM-DD HH:MM\"")]
+        end: String,
+        #[arg(short, long, help = "Session note")]
+        note: Option<String>,
+    },
     /// Append a note to the active session
     Note {
         #[arg(trailing_var_arg = true, num_args = 1..)]
@@ -95,6 +106,11 @@ fn run() -> anyhow::Result<()> {
         Command::Status => {
             let store = data::Store::load()?;
             cmd::status(&store);
+        }
+        Command::Add { client, start, end, note } => {
+            let mut store = data::Store::load()?;
+            cmd::add_session(&mut store, client, &start, &end, note)?;
+            store.save()?;
         }
         Command::Note { text } => {
             let mut store = data::Store::load()?;

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, bail};
-use chrono::{Datelike, Duration, Local, NaiveDate};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime};
 use colored::Colorize;
 
 use crate::data::{NoteEntry, Session, Store};
@@ -182,6 +182,80 @@ pub fn status(store: &Store) {
         }
         None => println!("{} Not clocked in", "○".dimmed()),
     }
+}
+
+fn parse_datetime(s: &str) -> anyhow::Result<chrono::DateTime<Local>> {
+    // "YYYY-MM-DD HH:MM"
+    if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        return Ok(dt.and_local_timezone(Local).unwrap());
+    }
+    // "HH:MM" — assumes today
+    if let Ok(t) = NaiveTime::parse_from_str(s, "%H:%M") {
+        return Ok(Local::now().date_naive().and_time(t).and_local_timezone(Local).unwrap());
+    }
+    bail!("invalid time '{}' — use HH:MM or YYYY-MM-DD HH:MM", s)
+}
+
+pub fn add_session(
+    store: &mut Store,
+    client: Option<String>,
+    start_str: &str,
+    end_str: &str,
+    note: Option<String>,
+) -> anyhow::Result<()> {
+    let client_name = client
+        .or_else(|| store.default_client.clone())
+        .ok_or_else(|| anyhow!("No client specified and no default set."))?;
+
+    let info = store
+        .clients
+        .get(&client_name)
+        .ok_or_else(|| anyhow!("Unknown client '{}'.", client_name))?
+        .clone();
+
+    let start = parse_datetime(start_str)?;
+    let end = parse_datetime(end_str)?;
+
+    if end <= start {
+        bail!("end time must be after start time");
+    }
+    if end > Local::now() {
+        bail!("end time is in the future");
+    }
+
+    // Warn about overlaps with existing completed sessions.
+    let overlap = store.sessions.iter().any(|s| {
+        if let Some(s_end) = s.end {
+            start < s_end && end > s.start
+        } else {
+            false
+        }
+    });
+    if overlap {
+        eprintln!("warning: this session overlaps with an existing one");
+    }
+
+    let notes = note
+        .map(|text| vec![NoteEntry { at: start, text }])
+        .unwrap_or_default();
+    let id = store.new_id();
+    let mut session = Session::new(id, client_name.clone(), start, notes, info.rate, info.currency.clone());
+    session.end = Some(end);
+
+    let hours = session.duration_hours();
+    println!(
+        "{} Added session for {}  {}–{}  {}  {}",
+        "✓".green(),
+        client_name.bold(),
+        start.format("%a %b %-d %H:%M"),
+        end.format("%H:%M"),
+        fmt_hours(hours).bold(),
+        fmt_money(session.earnings(), &info.currency).green(),
+    );
+
+    store.sessions.push(session);
+    store.sessions.sort_by_key(|s| s.start);
+    Ok(())
 }
 
 pub fn note(store: &mut Store, text: String) -> anyhow::Result<()> {
