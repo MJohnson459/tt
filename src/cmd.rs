@@ -184,6 +184,21 @@ pub fn status(store: &Store) {
     }
 }
 
+pub fn edit() -> anyhow::Result<()> {
+    let path = crate::data::data_path()?;
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    // Touch the file so the editor opens something even on first run.
+    if !path.exists() {
+        std::fs::write(&path, serde_json::to_string_pretty(&Store::default())?)?;
+    }
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let status = std::process::Command::new(&editor).arg(&path).status()?;
+    if !status.success() {
+        bail!("{} exited with status {}", editor, status);
+    }
+    Ok(())
+}
+
 fn parse_datetime(s: &str) -> anyhow::Result<chrono::DateTime<Local>> {
     // "YYYY-MM-DD HH:MM"
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {

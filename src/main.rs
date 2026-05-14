@@ -58,6 +58,8 @@ enum Command {
         #[arg(short, long, help = "This month")]
         month: bool,
     },
+    /// Open the raw data file in $EDITOR
+    Edit,
     /// Manage clients and hourly rates
     Client {
         #[command(subcommand)]
@@ -117,6 +119,7 @@ fn run() -> anyhow::Result<()> {
             cmd::note(&mut store, text.join(" "))?;
             store.save()?;
         }
+        Command::Edit => cmd::edit()?,
         Command::Log {
             client,
             week,
