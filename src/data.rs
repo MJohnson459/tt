@@ -15,12 +15,19 @@ fn default_currency() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteEntry {
+    pub at: DateTime<Local>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: u64,
     pub client: String,
     pub start: DateTime<Local>,
     pub end: Option<DateTime<Local>>,
-    pub note: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<NoteEntry>,
     pub rate: f64,
     #[serde(default = "default_currency")]
     pub currency: String,

@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail};
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use colored::Colorize;
 
-use crate::data::{Session, Store};
+use crate::data::{NoteEntry, Session, Store};
 
 fn fmt_hours(h: f64) -> String {
     let total_m = (h * 60.0).round() as i64;
@@ -70,6 +70,10 @@ fn currency_symbol(code: &str) -> &str {
     }
 }
 
+fn join_notes(notes: &[NoteEntry]) -> String {
+    notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>().join("; ")
+}
+
 fn fmt_money(amount: f64, currency: &str) -> String {
     let sym = currency_symbol(currency);
     if sym.is_empty() {
@@ -110,12 +114,15 @@ pub fn clock_in(
 
     let id = store.new_id();
     let start = Local::now();
+    let notes = note
+        .map(|text| vec![NoteEntry { at: start, text }])
+        .unwrap_or_default();
     let session = Session {
         id,
         client: client_name.clone(),
         start,
         end: None,
-        note: note.clone(),
+        notes,
         rate: info.rate,
         currency: info.currency.clone(),
     };
@@ -127,8 +134,8 @@ pub fn clock_in(
         fmt_money(info.rate, &info.currency),
         start.format("%H:%M on %a %b %-d")
     );
-    if let Some(n) = &note {
-        println!("  Note: {}", n.dimmed());
+    if !session.notes.is_empty() {
+        println!("  Note: {}", session.notes[0].text.dimmed());
     }
 
     store.sessions.push(session);
@@ -142,8 +149,8 @@ pub fn clock_out(store: &mut Store, note: Option<String>) -> anyhow::Result<()> 
 
     let end = Local::now();
     session.end = Some(end);
-    if note.is_some() {
-        session.note = note;
+    if let Some(text) = note {
+        session.notes.push(NoteEntry { at: end, text });
     }
 
     let hours = session.duration_hours();
@@ -173,8 +180,12 @@ pub fn status(store: &Store) {
                 fmt_hours(hours),
                 fmt_money(s.earnings(), &s.currency).green()
             );
-            if let Some(note) = &s.note {
-                println!("  Note:    {}", note.dimmed());
+            if !s.notes.is_empty() {
+                let indent = "           ";
+                for (i, n) in s.notes.iter().enumerate() {
+                    let label = if i == 0 { "  Notes:  " } else { indent };
+                    println!("{}{}  {}", label, n.at.format("%H:%M"), n.text.dimmed());
+                }
             }
         }
         None => println!("{} Not clocked in", "○".dimmed()),
@@ -186,12 +197,9 @@ pub fn note(store: &mut Store, text: String) -> anyhow::Result<()> {
         .active_session_mut()
         .ok_or_else(|| anyhow!("No active session — clock in first."))?;
 
-    session.note = Some(match session.note.take() {
-        Some(existing) => format!("{}; {}", existing, text),
-        None => text,
-    });
-
-    println!("  Note: {}", session.note.as_deref().unwrap().dimmed());
+    let entry = NoteEntry { at: Local::now(), text };
+    println!("  {}  {}", entry.at.format("%H:%M"), entry.text.dimmed());
+    session.notes.push(entry);
     Ok(())
 }
 
@@ -283,11 +291,11 @@ pub fn log(store: &Store, client: Option<String>, week: bool, month: bool) {
             .map(|e| e.format("%H:%M").to_string())
             .unwrap_or_else(|| "─────".to_string());
 
-        let note_str = s.note.as_deref().unwrap_or("");
+        let note_str = join_notes(&s.notes);
         let note_display = if note_str.len() > 30 {
             format!("{}…", &note_str[..29])
         } else {
-            note_str.to_string()
+            note_str.clone()
         };
 
         let earnings_str = if s.is_active() {
