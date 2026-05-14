@@ -117,15 +117,7 @@ pub fn clock_in(
     let notes = note
         .map(|text| vec![NoteEntry { at: start, text }])
         .unwrap_or_default();
-    let session = Session {
-        id,
-        client: client_name.clone(),
-        start,
-        end: None,
-        notes,
-        rate: info.rate,
-        currency: info.currency.clone(),
-    };
+    let session = Session::new(id, client_name.clone(), start, notes, info.rate, info.currency.clone());
 
     println!(
         "{} Clocked in to {}  ({}/hr)  {}",

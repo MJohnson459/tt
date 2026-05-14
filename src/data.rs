@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientInfo {
@@ -12,6 +12,34 @@ pub struct ClientInfo {
 
 fn default_currency() -> String {
     "USD".to_string()
+}
+
+// Deserializes either the current {"rate":…,"currency":…} shape or the legacy bare float.
+fn deserialize_clients<'de, D>(deserializer: D) -> Result<HashMap<String, ClientInfo>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Entry {
+        Current(ClientInfo),
+        Legacy(f64),
+    }
+
+    let raw: HashMap<String, Entry> = HashMap::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .map(|(k, v)| {
+            let info = match v {
+                Entry::Current(i) => i,
+                Entry::Legacy(rate) => ClientInfo {
+                    rate,
+                    currency: "USD".to_string(),
+                },
+            };
+            (k, info)
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,9 +59,32 @@ pub struct Session {
     pub rate: f64,
     #[serde(default = "default_currency")]
     pub currency: String,
+    // Legacy flat-string note — read from old data, never written.
+    #[serde(default, skip_serializing, rename = "note")]
+    legacy_note: Option<String>,
 }
 
 impl Session {
+    pub fn new(
+        id: u64,
+        client: String,
+        start: chrono::DateTime<Local>,
+        notes: Vec<NoteEntry>,
+        rate: f64,
+        currency: String,
+    ) -> Self {
+        Self {
+            id,
+            client,
+            start,
+            end: None,
+            notes,
+            rate,
+            currency,
+            legacy_note: None,
+        }
+    }
+
     pub fn duration_hours(&self) -> f64 {
         let end = self.end.unwrap_or_else(Local::now);
         (end - self.start).num_seconds() as f64 / 3600.0
@@ -51,6 +102,7 @@ impl Session {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Store {
     pub sessions: Vec<Session>,
+    #[serde(deserialize_with = "deserialize_clients")]
     pub clients: HashMap<String, ClientInfo>,
     pub default_client: Option<String>,
     pub next_id: u64,
@@ -63,7 +115,16 @@ impl Store {
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(&path)?;
-        Ok(serde_json::from_str(&content)?)
+        let mut store: Self = serde_json::from_str(&content)?;
+        // Migrate legacy flat note strings to timestamped entries.
+        for session in &mut store.sessions {
+            if session.notes.is_empty() {
+                if let Some(text) = session.legacy_note.take() {
+                    session.notes.push(NoteEntry { at: session.start, text });
+                }
+            }
+        }
+        Ok(store)
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
