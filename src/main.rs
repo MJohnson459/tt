@@ -54,10 +54,10 @@ enum ClientCmd {
     /// Add or update a client
     Add {
         name: String,
-        #[arg(short, long)]
-        rate: f64,
-        #[arg(short, long, default_value = "USD", help = "ISO currency code (USD, EUR, GBP, …)")]
-        currency: String,
+        #[arg(short, long, help = "Hourly rate, optionally prefixed with a currency symbol (e.g. £75, €90, $100, 80)")]
+        rate: String,
+        #[arg(short, long, help = "ISO currency code — overrides any symbol in --rate (e.g. GBP, EUR, USD)")]
+        currency: Option<String>,
     },
     /// List all clients
     List,
@@ -106,7 +106,7 @@ fn run() -> anyhow::Result<()> {
         Command::Client { action } => {
             let mut store = data::Store::load()?;
             match action {
-                ClientCmd::Add { name, rate, currency } => cmd::client_add(&mut store, name, rate, currency)?,
+                ClientCmd::Add { name, rate, currency } => cmd::client_add(&mut store, name, &rate, currency)?,
                 ClientCmd::List => cmd::client_list(&store),
                 ClientCmd::Remove { name } => cmd::client_remove(&mut store, name)?,
                 ClientCmd::Default { name } => cmd::client_default(&mut store, name)?,

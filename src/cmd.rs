@@ -17,6 +17,41 @@ fn fmt_hours(h: f64) -> String {
     }
 }
 
+fn parse_rate(s: &str) -> anyhow::Result<(f64, Option<String>)> {
+    // Longest symbol first to avoid "$" matching before "C$" etc.
+    const SYMBOLS: &[(&str, &str)] = &[
+        ("NZ$", "NZD"),
+        ("HK$", "HKD"),
+        ("MX$", "MXN"),
+        ("C$", "CAD"),
+        ("A$", "AUD"),
+        ("S$", "SGD"),
+        ("£", "GBP"),
+        ("€", "EUR"),
+        ("¥", "JPY"),
+        ("₹", "INR"),
+        ("$", "USD"),
+    ];
+
+    for (sym, code) in SYMBOLS {
+        if s.starts_with(sym) {
+            let rest = s[sym.len()..].trim();
+            let rate = rest.parse::<f64>().map_err(|_| {
+                anyhow!("invalid rate '{}': expected a number after '{}'", s, sym)
+            })?;
+            return Ok((rate, Some(code.to_string())));
+        }
+    }
+
+    let rate = s.trim().parse::<f64>().map_err(|_| {
+        anyhow!(
+            "invalid rate '{}': expected a number or a symbol-prefixed amount (e.g. £75, €90, $100)",
+            s
+        )
+    })?;
+    Ok((rate, None))
+}
+
 fn currency_symbol(code: &str) -> &str {
     match code {
         "USD" => "$",
@@ -360,13 +395,17 @@ pub fn summary(store: &Store, week: bool, month: bool) {
 pub fn client_add(
     store: &mut Store,
     name: String,
-    rate: f64,
-    currency: String,
+    rate_input: &str,
+    currency_override: Option<String>,
 ) -> anyhow::Result<()> {
+    let (rate, symbol_currency) = parse_rate(rate_input)?;
     if rate <= 0.0 {
         bail!("Rate must be greater than 0");
     }
-    let currency = currency.to_uppercase();
+    let currency = currency_override
+        .map(|c| c.to_uppercase())
+        .or(symbol_currency)
+        .unwrap_or_else(|| "USD".to_string());
     let existed = store.clients.contains_key(&name);
     let rate_str = fmt_money(rate, &currency);
     store
