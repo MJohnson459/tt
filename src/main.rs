@@ -1,6 +1,8 @@
 mod cmd;
 mod data;
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -60,6 +62,15 @@ enum Command {
     },
     /// Open the raw data file in $EDITOR
     Edit,
+    /// Generate a monthly report per client (Markdown)
+    Report {
+        #[arg(short, long, help = "Month to report (YYYY-MM, default: current month)")]
+        month: Option<String>,
+        #[arg(short, long, help = "Filter to one client")]
+        client: Option<String>,
+        #[arg(short, long, help = "Write to file instead of stdout")]
+        output: Option<PathBuf>,
+    },
     /// Manage clients and hourly rates
     Client {
         #[command(subcommand)]
@@ -120,6 +131,10 @@ fn run() -> anyhow::Result<()> {
             store.save()?;
         }
         Command::Edit => cmd::edit()?,
+        Command::Report { month, client, output } => {
+            let store = data::Store::load()?;
+            cmd::report(&store, month.as_deref(), client, output.as_deref())?;
+        }
         Command::Log {
             client,
             week,
