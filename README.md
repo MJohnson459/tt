@@ -1,6 +1,6 @@
 # tt — time tracker for contractors
 
-A minimal command-line tool for logging work sessions and tracking earnings across multiple clients.
+A minimal command-line tool for logging work sessions, tracking earnings across multiple clients and currencies, and generating monthly reports.
 
 ## Install
 
@@ -13,28 +13,29 @@ This puts `tt` on your PATH via `~/.cargo/bin/`.
 ## Quick start
 
 ```bash
-# Add your first client
-tt client add acme --rate 150
+# Add your first client (currency inferred from symbol)
+tt client add acme --rate '$150'
+tt client add eurotech --rate '€90'
+tt client add ukco --rate '£75'
 
 # Clock in (uses the default client when only one exists)
 tt in
 tt in -n "starting auth refactor"
+
+# Add notes as you go — no quotes needed
+tt note fixed the login endpoint
+tt note PR up for review
 
 # Check running time
 tt status
 
 # Clock out
 tt out
-tt out -n "finished auth, 2 PRs merged"
+tt out -n "finished for the day"
 
-# Review the day
-tt log
-tt log --week
-tt log --month
-
-# See earnings summary
-tt summary --week
-tt summary --month
+# End-of-month report (defaults to last month)
+tt report
+tt report -o may-2026.md
 ```
 
 ## Commands
@@ -47,7 +48,27 @@ tt out [-n NOTE]            end the current session
 tt status                   show live running time and earnings
 ```
 
-If you only have one client it's used automatically. With multiple clients you can set a default or pass the name explicitly.
+### Notes
+
+```
+tt note <text>              append a timestamped note to the active session
+```
+
+Each note is stored with a timestamp. You can add as many as you like during a session. No quoting needed — `tt note fixed the login bug` works as-is.
+
+### Retroactive sessions
+
+```
+tt add [CLIENT] --start <time> --end <time> [-n NOTE]
+```
+
+`<time>` is either `HH:MM` (today) or `YYYY-MM-DD HH:MM`:
+
+```bash
+tt add --start "09:00" --end "12:30"
+tt add --start "2026-05-13 09:00" --end "2026-05-13 17:30" -n "full day"
+tt add ukco --start "14:00" --end "16:00" -n "client call"
+```
 
 ### Logs
 
@@ -66,13 +87,54 @@ tt summary --week
 tt summary --month
 ```
 
+When sessions span multiple currencies, separate totals are shown per currency.
+
+### Monthly report
+
+```
+tt report                           last month, all clients → stdout
+tt report --month 2026-05           specific month
+tt report -c acme                   one client only
+tt report -o may-2026.md            write to file
+tt report --month 2026-05 -c acme -o acme-may.md
+```
+
+Generates a Markdown document per client with rate, period, total hours and earnings, and a collated list of all notes from the month — ready to attach to an invoice or paste into an email.
+
 ### Clients
 
 ```
-tt client add <name> --rate <rate>    add or update a client ($/hr)
-tt client list                        show all clients and rates
-tt client default <name>              set the default for clock-in
-tt client remove <name>               remove a client
+tt client add <name> --rate <rate>          add or update a client
+tt client add <name> --rate <rate> --currency <code>   explicit currency code
+tt client list                              show all clients and rates
+tt client default <name>                   set the default for clock-in
+tt client remove <name>                    remove a client
+```
+
+#### Currency
+
+The currency is inferred from the symbol prefix of `--rate`:
+
+| Symbol | Currency |
+|--------|----------|
+| `$`    | USD      |
+| `€`    | EUR      |
+| `£`    | GBP      |
+| `¥`    | JPY      |
+| `₹`    | INR      |
+| `C$`   | CAD      |
+| `A$`   | AUD      |
+| `NZ$`  | NZD      |
+| `HK$`  | HKD      |
+| `S$`   | SGD      |
+| `MX$`  | MXN      |
+
+For any other currency pass `--currency <ISO code>` explicitly, e.g. `--currency CHF`.
+
+### Raw data
+
+```
+tt edit         open the data file in $EDITOR (falls back to vi)
 ```
 
 ## Data
@@ -83,4 +145,8 @@ Sessions are stored as JSON at:
 ~/.local/share/timetracker/data.json
 ```
 
-Respects `$XDG_DATA_HOME` if set. The file is human-readable and easy to back up or inspect.
+Respects `$XDG_DATA_HOME` if set. The file is human-readable and straightforward to back up or inspect directly.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
