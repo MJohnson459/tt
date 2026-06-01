@@ -204,7 +204,11 @@ pub fn report(
         }
         None => {
             let now = Local::now();
-            (now.year(), now.month())
+            if now.month() == 1 {
+                (now.year() - 1, 12u32)
+            } else {
+                (now.year(), now.month() - 1)
+            }
         }
     };
 
@@ -271,32 +275,31 @@ pub fn report(
             period_start.format("%B %Y")
         ));
         out.push_str(&format!(
-            "**Rate:** {}/hr  \n**Period:** {}  \n\n",
+            "**Rate:** {}/hr  \n**Period:** {}  \n**Total: {} — {}**\n\n",
             fmt_money(rate, currency),
-            period_label
-        ));
-
-        out.push_str("| Date | Time | Duration | Notes |\n");
-        out.push_str("|------|------|----------|-------|\n");
-
-        for s in &client_sessions {
-            let end = s.end.unwrap();
-            let notes = join_notes(&s.notes);
-            out.push_str(&format!(
-                "| {} | {}–{} | {} | {} |\n",
-                s.start.format("%a %-d %b"),
-                s.start.format("%H:%M"),
-                end.format("%H:%M"),
-                fmt_hours(s.duration_hours()),
-                notes,
-            ));
-        }
-
-        out.push_str(&format!(
-            "\n**Total: {} — {}**\n\n---\n\n",
+            period_label,
             fmt_hours(total_hours),
             fmt_money(total_earnings, currency),
         ));
+
+        // Collate all notes across sessions, preserving order, deduplicating.
+        let mut seen = std::collections::HashSet::new();
+        let all_notes: Vec<&str> = client_sessions
+            .iter()
+            .flat_map(|s| s.notes.iter().map(|n| n.text.as_str()))
+            .filter(|t| seen.insert(*t))
+            .collect();
+
+        if all_notes.is_empty() {
+            out.push_str("*No notes recorded.*\n\n");
+        } else {
+            for note in all_notes {
+                out.push_str(&format!("- {}\n", note));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("---\n\n");
     }
 
     out.push_str(&format!(
