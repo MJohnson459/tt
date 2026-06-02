@@ -18,11 +18,15 @@ enum Command {
     In {
         /// Client name (uses default if omitted)
         client: Option<String>,
+        #[arg(long, help = "Start time if you forgot to clock in (e.g. \"2 hours ago\", \"9am\", \"yesterday 14:00\")")]
+        at: Option<String>,
         #[arg(short, long, help = "Session note")]
         note: Option<String>,
     },
     /// Clock out and end the current session
     Out {
+        #[arg(long, help = "End time if you forgot to clock out (e.g. \"30 minutes ago\", \"17:30\")")]
+        at: Option<String>,
         #[arg(short, long, help = "Session note")]
         note: Option<String>,
     },
@@ -106,14 +110,14 @@ fn main() {
 fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::In { client, note } => {
+        Command::In { client, at, note } => {
             let mut store = data::Store::load()?;
-            cmd::clock_in(&mut store, client, note)?;
+            cmd::clock_in(&mut store, client, at, note)?;
             store.save()?;
         }
-        Command::Out { note } => {
+        Command::Out { at, note } => {
             let mut store = data::Store::load()?;
-            cmd::clock_out(&mut store, note)?;
+            cmd::clock_out(&mut store, at, note)?;
             store.save()?;
         }
         Command::Status => {

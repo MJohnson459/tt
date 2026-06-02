@@ -86,6 +86,7 @@ fn fmt_money(amount: f64, currency: &str) -> String {
 pub fn clock_in(
     store: &mut Store,
     client: Option<String>,
+    at: Option<String>,
     note: Option<String>,
 ) -> anyhow::Result<()> {
     if let Some(active) = store.active_session() {
@@ -113,7 +114,16 @@ pub fn clock_in(
     })?.clone();
 
     let id = store.new_id();
-    let start = Local::now();
+    let start = match at {
+        Some(s) => {
+            let t = parse_datetime(&s)?;
+            if t > Local::now() {
+                bail!("start time cannot be in the future");
+            }
+            t
+        }
+        None => Local::now(),
+    };
     let notes = note
         .map(|text| vec![NoteEntry { at: start, text }])
         .unwrap_or_default();
@@ -134,12 +144,24 @@ pub fn clock_in(
     Ok(())
 }
 
-pub fn clock_out(store: &mut Store, note: Option<String>) -> anyhow::Result<()> {
+pub fn clock_out(store: &mut Store, at: Option<String>, note: Option<String>) -> anyhow::Result<()> {
     let session = store
         .active_session_mut()
         .ok_or_else(|| anyhow!("Not currently clocked in."))?;
 
-    let end = Local::now();
+    let end = match at {
+        Some(s) => {
+            let t = parse_datetime(&s)?;
+            if t > Local::now() {
+                bail!("end time cannot be in the future");
+            }
+            if t < session.start {
+                bail!("end time is before session start ({})", session.start.format("%H:%M on %a %b %-d"));
+            }
+            t
+        }
+        None => Local::now(),
+    };
     session.end = Some(end);
     if let Some(text) = note {
         session.notes.push(NoteEntry { at: end, text });
@@ -334,15 +356,22 @@ pub fn edit() -> anyhow::Result<()> {
 }
 
 fn parse_datetime(s: &str) -> anyhow::Result<chrono::DateTime<Local>> {
-    // "YYYY-MM-DD HH:MM"
+    use interim::{parse_date_string, Dialect};
+    // Natural language + most structured formats
+    if let Ok(dt) = parse_date_string(s, Local::now(), Dialect::Uk) {
+        return Ok(dt);
+    }
+    // Explicit fallbacks for formats interim doesn't cover
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
         return Ok(dt.and_local_timezone(Local).unwrap());
     }
-    // "HH:MM" — assumes today
     if let Ok(t) = NaiveTime::parse_from_str(s, "%H:%M") {
         return Ok(Local::now().date_naive().and_time(t).and_local_timezone(Local).unwrap());
     }
-    bail!("invalid time '{}' — use HH:MM or YYYY-MM-DD HH:MM", s)
+    bail!(
+        "couldn't parse '{}' — try \"yesterday 9am\", \"2 hours ago\", \"last friday 14:00\", HH:MM, or YYYY-MM-DD HH:MM",
+        s
+    )
 }
 
 pub fn add_session(
