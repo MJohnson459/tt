@@ -1,9 +1,15 @@
 [package]
 name = "timetracker"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+rust-version = "1.85"
+authors = ["Michael Johnson"]
 license = "MIT"
 description = "A minimal time tracker for contractors"
+repository = "https://github.com/MJohnson459/tt"
+readme = "README.md"
+keywords = ["time-tracking", "contractor", "invoicing", "cli", "billing"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "tt"
