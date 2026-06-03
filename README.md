@@ -5,10 +5,16 @@ A minimal command-line tool for logging work sessions, tracking earnings across 
 ## Install
 
 ```bash
+cargo install timetracker
+```
+
+Or from source:
+
+```bash
 cargo install --path .
 ```
 
-This puts `tt` on your PATH via `~/.cargo/bin/`.
+Both put `tt` on your PATH via `~/.cargo/bin/`.
 
 ## Quick start
 
